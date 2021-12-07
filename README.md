@@ -1,4 +1,5 @@
 # argkp-standalone
+Implements the automatic [Key-point Analysis](https://arxiv.org/abs/2010.05369) using a trained model.
 
 ## Running
 Download the state from [here](https://surfdrive.surf.nl/files/index.php/s/ymXl60rCMc2MPfQ) and extract into a `state/` folder. Install the `requirements.txt`. Then. run as follows:
