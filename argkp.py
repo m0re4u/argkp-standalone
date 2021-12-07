@@ -23,9 +23,9 @@ from torch.utils.data import Dataset
 
 nlp = spacy.load("en_core_web_sm")
 
-CANDIDATE_NUM_TOKENS_MAX = 15
-CANDIDATE_NUM_TOKENS_MIN = 1
-CANDIDATE_MIN_QUAL = 0.5
+DEFAULT_CANDIDATE_NUM_TOKENS_MAX = 15
+DEFAULT_CANDIDATE_NUM_TOKENS_MIN = 1
+DEFAULT_CANDIDATE_MIN_QUAL = 0.5
 
 class KPDataset(torch.utils.data.Dataset):
     """
@@ -76,14 +76,14 @@ class KP2KPDataset(torch.utils.data.Dataset):
         return len(self.data)
 
 
-def extract_candidates(comments):
+def extract_candidates(comments, cand_max_tokens=DEFAULT_CANDIDATE_NUM_TOKENS_MAX, cand_min_quality=DEFAULT_CANDIDATE_MIN_QUAL):
     """
     Given a list of comments, extract a list of candidate key points.
     """
     candidates = []
     for _, candidate in comments.iterrows():
         doc = nlp(candidate['english'], disable=['ner'])
-        if len(doc) > CANDIDATE_NUM_TOKENS_MIN and len(doc) <= CANDIDATE_NUM_TOKENS_MAX and all([t.is_ascii for t in doc]) and not any([x.lower_ == 'and' for x in doc]) and candidate['quality_scores'] > CANDIDATE_MIN_QUAL:
+        if len(doc) > DEFAULT_CANDIDATE_NUM_TOKENS_MIN and len(doc) <= cand_max_tokens and all([t.is_ascii for t in doc]) and not any([x.lower_ == 'and' for x in doc]) and candidate['quality_scores'] > cand_min_quality:
             candidates.append(candidate['english'])
 
     print(f"Selected {len(candidates)} / {len(comments)} candidates")
@@ -178,19 +178,21 @@ def get_sentences(texts, candidates, threshold=0.9, batch_size=16):
     return dict(k2c), sorted_kps
 
 
-def get_args_per_topic(df, topic_id, num_comments=100, batch_size=16):
+def get_args_per_topic(df, topic_id, num_comments=100, batch_size=16, cand_max_tokens=DEFAULT_CANDIDATE_NUM_TOKENS_MAX, cand_min_quality=DEFAULT_CANDIDATE_MIN_QUAL):
     """
     For a specific topic (using `topic_id`) get a list of pro and con key
     points from a given DataFrame `df`.
     Considers only up to `num_comments` comments.
     Use `batch_size` for the batch size of forward passes through the ArgKP model.
     """
-    text_pro = df[(df.project == topic_id) & (df.extracted_from == 'pro')][:num_comments]
-    text_con = df[(df.project == topic_id) & (df.extracted_from == 'con')][:num_comments]
-    print(len(text_pro))
-    print(len(text_con))
-    pro_cands = extract_candidates(text_pro)
-    con_cands = extract_candidates(text_con)
+    if num_comments < 0:
+        text_pro = df[(df.project == topic_id) & (df.extracted_from == 'pro')]
+        text_con = df[(df.project == topic_id) & (df.extracted_from == 'con')]
+    else:
+        text_pro = df[(df.project == topic_id) & (df.extracted_from == 'pro')][:num_comments]
+        text_con = df[(df.project == topic_id) & (df.extracted_from == 'con')][:num_comments]
+    pro_cands = extract_candidates(text_pro, cand_max_tokens=cand_max_tokens, cand_min_quality=cand_min_quality)
+    con_cands = extract_candidates(text_con, cand_max_tokens=cand_max_tokens, cand_min_quality=cand_min_quality)
     pro_kps, _ = get_sentences(text_pro, pro_cands, batch_size=batch_size)
     con_kps, _ = get_sentences(text_con, con_cands, batch_size=batch_size)
     return pro_kps, con_kps
@@ -211,7 +213,13 @@ def main(config):
 
     # Single topic for now to reduce computations
     for i in range(config['option'],config['option']+1):
-        pro, con = get_args_per_topic(df, i, num_comments=config['num_comments'], batch_size=config['batch_size'])
+        pro, con = get_args_per_topic(
+            df, i,
+            num_comments=config['num_comments'],
+            batch_size=config['batch_size'],
+            cand_max_tokens=config['candidate_max_tokens'],
+            cand_min_quality=config['candidate_min_quality'],
+            )
         summary_dict[i]['pro'] = pro
         summary_dict[i]['con'] = con
 
@@ -242,7 +250,9 @@ if __name__ == "__main__":
     parser.add_argument('--threshold', default=0.9, type=float, help="Threshold on the argument matching confidence")
     parser.add_argument('--num_comments', default=100, type=int, help="How many comments to analyze")
     parser.add_argument('--batch_size', default=16, type=int, help="how many datapoints in a batch")
-    parser.add_argument('--option', default=4, type=int, help="which topic to run")
+    parser.add_argument('--candidate_max_tokens', default=DEFAULT_CANDIDATE_NUM_TOKENS_MAX, type=int, help="how many tokens a comment can have max for it to be considered a candidate")
+    parser.add_argument('--candidate_min_quality', default=DEFAULT_CANDIDATE_MIN_QUAL, type=float, help="minimum quality score for a comment to be considered a candidate")
+    parser.add_argument('--option', default=0, type=int, help="which topic to run")
     args = parser.parse_args()
 
     config = vars(args)
