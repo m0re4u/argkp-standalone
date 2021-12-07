@@ -123,43 +123,45 @@ def filter_candidates(k2c, threshold, batch_size):
     x = list(zip(k2c.keys(), [len(k2c[key]) for key in k2c]))
     keys = sorted(x, reverse=True, key=lambda x: x[1])
     dataset = KP2KPDataset([x[0] for x in keys])
-    training_args = transformers.TrainingArguments('argkp_baseline', report_to='none', per_device_eval_batch_size=batch_size)
-    trainer = transformers.Trainer(
-        args=training_args,
-        model=transformers.AutoModelForSequenceClassification.from_pretrained('state/'),
-    )
-    predictions = trainer.predict(dataset)
+    if len(dataset) > 0:
+        training_args = transformers.TrainingArguments('argkp_baseline', report_to='none', per_device_eval_batch_size=batch_size)
+        trainer = transformers.Trainer(
+            args=training_args,
+            model=transformers.AutoModelForSequenceClassification.from_pretrained('state/'),
+        )
+        predictions = trainer.predict(dataset)
 
-    num_kps = len(keys)
-    num_other_kps = len(keys) - 1
-    preds = np.zeros((num_kps, num_kps, 2))
+        num_kps = len(keys)
+        num_other_kps = len(keys) - 1
+        preds = np.zeros((num_kps, num_kps, 2))
 
-    for i, k in enumerate(keys):
-        outputs = predictions.predictions[(i*num_other_kps):(i*num_other_kps)+num_other_kps, :]
-        outputs = np.insert(outputs, i, (0,0), axis=0)
-        preds[i,:]= outputs
+        for i, k in enumerate(keys):
+            outputs = predictions.predictions[(i*num_other_kps):(i*num_other_kps)+num_other_kps, :]
+            outputs = np.insert(outputs, i, (0,0), axis=0)
+            preds[i,:]= outputs
 
-    comment_pool = []
-    merged = 0
-    for i, key_point in reversed(list(enumerate(keys))):
-        for j, _ in enumerate(keys):
-            if i == j:
-                continue
-            avg_score = (preds[i,j] + preds[j, i]) / 2
-            if np.argmax(avg_score) == 1 and avg_score[1] > threshold:
-                comment_pool.extend([x for x, _ in k2c[key_point[0]]])
-                comment_pool.append(key_point[0])
-                k2c.pop(key_point[0])
-                keys.pop(i)
-                merged += 1
-                break
+        comment_pool = []
+        merged = 0
+        for i, key_point in reversed(list(enumerate(keys))):
+            for j, _ in enumerate(keys):
+                if i == j:
+                    continue
+                avg_score = (preds[i,j] + preds[j, i]) / 2
+                if np.argmax(avg_score) == 1 and avg_score[1] > threshold:
+                    comment_pool.extend([x for x, _ in k2c[key_point[0]]])
+                    comment_pool.append(key_point[0])
+                    k2c.pop(key_point[0])
+                    keys.pop(i)
+                    merged += 1
+                    break
 
-    if len(comment_pool) > 0:
-        comment_df = pd.DataFrame({'english': comment_pool})
-        new_k2c = match_comments(comment_df, list(k2c.keys()), threshold, batch_size)
-        for k in new_k2c:
-            k2c[k].extend(new_k2c[k])
-    print(f"Merged {merged} KP candidates")
+        if len(comment_pool) > 0:
+            comment_df = pd.DataFrame({'english': comment_pool})
+            new_k2c = match_comments(comment_df, list(k2c.keys()), threshold, batch_size)
+            for k in new_k2c:
+                k2c[k].extend(new_k2c[k])
+        print(f"Merged {merged} KP candidates")
+
     x = list(zip(k2c.keys(), [len(k2c[key]) for key in k2c]))
     sorted_keys = sorted(x, reverse=True, key=lambda x: x[1])
     print("Final list of KPs:")
@@ -193,8 +195,14 @@ def get_args_per_topic(df, topic_id, num_comments=100, batch_size=16, cand_max_t
         text_con = df[(df.project == topic_id) & (df.extracted_from == 'con')][:num_comments]
     pro_cands = extract_candidates(text_pro, cand_max_tokens=cand_max_tokens, cand_min_quality=cand_min_quality)
     con_cands = extract_candidates(text_con, cand_max_tokens=cand_max_tokens, cand_min_quality=cand_min_quality)
-    pro_kps, _ = get_sentences(text_pro, pro_cands, batch_size=batch_size)
-    con_kps, _ = get_sentences(text_con, con_cands, batch_size=batch_size)
+    if len(pro_cands) > 0:
+        pro_kps, _ = get_sentences(text_pro, pro_cands, batch_size=batch_size)
+    else:
+        pro_kps = {}
+    if len(con_cands) > 0:
+        con_kps, _ = get_sentences(text_con, con_cands, batch_size=batch_size)
+    else:
+        con_kps = {}
     return pro_kps, con_kps
 
 
