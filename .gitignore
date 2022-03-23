@@ -131,3 +131,8 @@ dmypy.json
 # State
 state/*
 !state/.gitkeep
+
+data/
+experiments/
+baseline_result0.json
+dump_baseline_option0.pkl
